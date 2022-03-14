@@ -8,309 +8,509 @@ import "./klaytn/token/KIP17/KIP17MetadataMintable.sol";
 import "./klaytn/ownership/Ownable.sol";
 import "./klaytn/math/SafeMath.sol";
 import "./klaytn/drafts/Counters.sol";
+import "./klaytn/utils/EnumerableSet.sol";
+import "./klaytn/token/KIP17/IKIP17Full.sol";
+
+contract INFT is IKIP17Full {
+
+    // ***************************** round ***************************** //
+    
+    function addRound( 
+        uint256 _roundNumber,
+        uint256 _supply,
+        uint256 _price,
+        uint256 _amountOfOperator,
+        uint256 _amountOfCreator,
+        uint256 _amountOfService,
+        uint256 _amountOfWhitelist,
+        uint256 _mintLimitOfAccount,
+        uint256 _startTimestamp,
+        uint256 _whitelistExpirationTimestamp,
+        uint256 _endTimestamp
+    ) external;
+    
+    function setRoundInfo(
+        uint256 _roundNumber,
+        uint256 _supply,
+        uint256 _price,
+        uint256 _amountOfOperator,
+        uint256 _amountOfCreator,
+        uint256 _amountOfService,
+        uint256 _amountOfWhitelist,
+        uint256 _mintLimitOfAccount 
+    ) external;
+
+    function setRoundTimestamp(
+        uint256 _roundNumber,
+        uint256 _startTimestamp,
+        uint256 _whitelistExpirationTimestamp,
+        uint256 _endTimestamp
+    ) external;
+
+    function removeRound(uint256 _roundNumber) external;
 
 
-contract NsnNFT is KIP17Full, KIP17Mintable, KIP17Burnable. KIP17Pausable, KIP17MetadataMintable, Ownable {
+    // ***************************** whitelist ***************************** //
+
+    function maxOfWhitelist(uint256 _roundNumber) public view returns (uint256);
+
+    function lengthOfWhitelist(uint256 _roundNumber) public view returns (uint256);
+
+    function isCountainWhitelist(uint256 _roundNumber, address _value) public view returns (bool);
+
+    function getWhitelist(uint256 _roundNumber) public view returns (address[] memory);
+    
+    function addWhitelist(uint256 _roundNumber, address _value) external;
+
+    function addWhitelists(uint256 _roundNumber, address[] calldata _values) external;
+
+    function removeWhitelist(uint256 _roundNumber, address _value) external;
+
+    
+    // ***************************** mint ***************************** //
+
+    function mintOffer(uint256 _roundNumber) external payable;
+
+    function mintFounder(uint256 _roundNumber) external;
+
+    function mintRemain(uint256 _roundNumber) external;
+
+    
+    // ***************************** withdraw ***************************** //
+
+    function withdraw() external;
+
+    function setDistributor(address payable _distributor) external;
+
+
+    // ***************************** only owner ***************************** //
+    
+    function setTotalCollectionSupply(uint256 _totalCollectionSupply) external;
+
+    function setBaseURI(string calldata _baseURI) external;
+
+    function setMintEnabled(bool _mintEnabled) external;
+
+    function setOperator(address payable _operator) external;
+
+    function setCreator(address payable _creator) external;
+
+    function setService(address payable _service) external;
+
+    function setProject(address payable _project) external;
+}
+
+
+contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KIP17MetadataMintable, Ownable {
     using SafeMath for uint256;
-    using SafeMath for uint64;
-    using SafeMath for uint32;
     using Counters for Counters.Counter;
     using EnumerableSet for EnumerableSet.AddressSet;
     
     Counters.Counter private tokenIds;
-    Counters.Counter private totalMintCount; // 현재까지의 총 NFT 발행량
 
-    bool public mintEnabled = false; // 민팅 활성 여부
-    string public ipfsGateway; 
-    uint256 public totalSupply; // NFT 총 발행량
+    bool public mintEnabled = false;
+    string public baseURI; 
+    uint256 public totalCollectionSupply;
     uint256 public totalRoundSupply; // 현재까지 설정된 round 총 발행량 
-    address payable public operator; 
-    address payable public creator;
-
+    address payable public service; // 서비스 컨트랙트
+    address payable public operator; // 서비스 컨트랙트에서 프로젝트
+    address payable public creator; 
+    address payable public projectPublic; // 서비스 컨트랙트에서 프로젝트
+    address payable public distributor; // 서비스 컨트랙트
+        
     struct Round {
-        string name;
-        uint64 startTimeStamp;
-        uint64 endTimeStamp;
-        uint32 supply;
-        uint32 mintCount; // 라운드의 현재까지 발행량
-        uint32 price;
-        uint32 amountOfWhitelist;
-        uint32 amountOfOperator;
-        uint32 amountOfCreator;
-        uint32 amountOfAnyone;
-        uint32 offerLimitOfAccount; // 오퍼 횟수 한도
-        uint32 mintLimitOfOffer; // 오퍼 한번당 민팅할 수 있는 한도
+        uint256 supply;
+        uint256 price;
+        uint256 amountOfService;
+        uint256 amountOfOperator;
+        uint256 amountOfCreator;
+        uint256 amountOfWhitelist;
+        uint256 amountOfAnyone;
+        uint256 mintLimitOfAccount;
+    }
+
+    struct Timestamp {
+        uint256 startTimestamp;
+        uint256 whitelistExpirationTimestamp;
+        uint256 endTimestamp;
+    }
+
+    struct MintCount {
+        uint256 totalMintCount;
+        uint256 operatorMintCount;
+        uint256 creatorMintCount;
+        uint256 serviceMintCount;
+        uint256 whitelistMintCount;
+        uint256 anyoneMintCount;
+        uint256 remainMintCount;
     }
 
     mapping(uint256 => Round) public rounds; // roundNumber => Round 매핑
-    mapping(uint256 => EnumerableSet.AddressSet) public whitelistOfRound; // 라운드별 화이트리스트
-
+    mapping(uint256 => Timestamp) public timestampOfRound; // roundNumber => Timestamp 매핑
+    mapping(uint256 => MintCount) public mintCountOfRound; // roundNumber => mintCount 매핑
+    mapping(uint256 => EnumerableSet.AddressSet) private whitelistOfRound; // roundNumber => whitelist set 매핑
+    mapping(uint256 => mapping(address => uint256)) private accountMintCountOfRound; // roundNumber => (account : mintCount) 매핑
 
     constructor (
         string memory _name,
         string memory _symbol,
-        string memory _ipfsGateway,
-        uint256 _totalSupply,
-        address _operator,
-        address _creator
-    )
+        string memory _baseURI,
+        uint256 _totalCollectionSupply,
+        address payable _service,
+        address payable _operator,
+        address payable _creator,
+        address payable _projectPublic,
+        address payable _distributor
+    )   
+        KIP17Mintable()
+        KIP17MetadataMintable()
+        KIP17Burnable()
+        KIP17Pausable()
         KIP17Full(_name, _symbol) public {
-        ipfsGateway = _ipfsGateway;
-        totalSupply = _totalSupply;
+        baseURI = _baseURI;
+        totalCollectionSupply = _totalCollectionSupply;
+        service = _service;
         operator = _operator;
         creator = _creator;
+        projectPublic = _projectPublic;
+        distributor = _distributor;
     }
 
-    modifier onlyOperator() {
-        require(isOwner(), "Ownable: caller is not the owner");
+
+    // ***************************** round ***************************** //
+
+    function addRound(
+        uint256 _roundNumber,
+        uint256 _supply,
+        uint256 _price,
+        uint256 _amountOfService,
+        uint256 _amountOfOperator,
+        uint256 _amountOfCreator,
+        uint256 _amountOfWhitelist,
+        uint256 _mintLimitOfAccount,
+        uint256 _startTimestamp,
+        uint256 _whitelistExpirationTimestamp,
+        uint256 _endTimestamp
+    ) external onlyOwner {
+        require(_startTimestamp < _endTimestamp, "invalid timestamp"); 
+        require(_whitelistExpirationTimestamp <= _endTimestamp, "invalid timestamp");
+        require(totalRoundSupply.add(_supply) <= totalCollectionSupply, "invalid supply");
+        require(_amountOfOperator.add(_amountOfCreator).add(_amountOfService).add(_amountOfWhitelist) <= _supply, "invalid amount");
+
+        uint256 amountOfAnyone = _supply.sub(_amountOfOperator.add(_amountOfCreator).add(_amountOfService).add(_amountOfWhitelist));
+        rounds[_roundNumber] = Round(
+            _supply,
+            _price,
+            _amountOfService,
+            _amountOfOperator, 
+            _amountOfCreator, 
+            _amountOfWhitelist,
+            amountOfAnyone, 
+            _mintLimitOfAccount);
+        
+        timestampOfRound[_roundNumber] = Timestamp(
+            _startTimestamp,
+            _whitelistExpirationTimestamp,
+            _endTimestamp
+        );
+
+        mintCountOfRound[_roundNumber] = MintCount(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+        
+        totalRoundSupply = totalRoundSupply.add(_supply);
+    }
+
+    function setRoundInfo(
+        uint256 _roundNumber,
+        uint256 _supply,
+        uint256 _price,
+        uint256 _amountOfOperator,
+        uint256 _amountOfCreator,
+        uint256 _amountOfService,
+        uint256 _amountOfWhitelist,
+        uint256 _mintLimitOfAccount 
+    ) external onlyOwner {
+        require(_isExistRound(_roundNumber), "does not exist round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(totalRoundSupply.sub(rounds[_roundNumber].supply).add(_supply) <= totalCollectionSupply, "invalid supply");
+        require(_amountOfOperator.add(_amountOfCreator).add(_amountOfService).add(_amountOfWhitelist) <= _supply, "invalid amount");
+
+        totalRoundSupply = totalRoundSupply.sub(rounds[_roundNumber].supply);
+        
+        uint256 amountOfAnyone = _supply.sub(_amountOfOperator.add(_amountOfCreator).add(_amountOfService).add(_amountOfWhitelist));
+        rounds[_roundNumber] = Round(
+            _supply,
+            _price,
+            _amountOfService,
+            _amountOfOperator, 
+            _amountOfCreator,
+            _amountOfWhitelist, 
+            amountOfAnyone,  
+            _mintLimitOfAccount);
+
+        totalRoundSupply = totalRoundSupply.add(_supply);
+    }
+
+    function setRoundTimestamp(
+        uint256 _roundNumber,
+        uint256 _startTimestamp,
+        uint256 _whitelistExpirationTimestamp,
+        uint256 _endTimestamp
+    ) external onlyOwner {
+        require(_isExistRound(_roundNumber), "does not exist round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(_startTimestamp < _endTimestamp, "invalid timestamp"); 
+        require(_whitelistExpirationTimestamp <= _endTimestamp, "invalid timestamp");
+
+        timestampOfRound[_roundNumber] = Timestamp(
+            _startTimestamp,
+            _whitelistExpirationTimestamp,
+            _endTimestamp
+        );
+    }
+
+    function removeRound(uint256 _roundNumber) external onlyOwner {
+        require(_isExistRound(_roundNumber), "does not exist round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+
+        delete rounds[_roundNumber];
+        delete timestampOfRound[_roundNumber];
+        delete mintCountOfRound[_roundNumber];
+    }
+
+    function _isExistRound(uint256 _roundNumber) internal view returns (bool) {
+        return rounds[_roundNumber].price != 0 && 
+               rounds[_roundNumber].supply != 0 && 
+               timestampOfRound[_roundNumber].startTimestamp != 0 && 
+               timestampOfRound[_roundNumber].endTimestamp != 0;
+    }
+
+
+    // ***************************** whitelist ***************************** //
+
+    function maxOfWhitelist(uint256 _roundNumber) public view returns (uint256) {
+        return rounds[_roundNumber].amountOfWhitelist.mul(rounds[_roundNumber].mintLimitOfAccount);
+    }
+
+    function lengthOfWhitelist(uint256 _roundNumber) public view returns (uint256) {
+        return whitelistOfRound[_roundNumber].length();
+    }
+
+    function isCountainWhitelist(uint256 _roundNumber, address _value) public view returns (bool) {
+        return whitelistOfRound[_roundNumber].contains(_value);
+    }
+
+    function getWhitelist(uint256 _roundNumber) public view returns (address[] memory) {
+        return whitelistOfRound[_roundNumber].enumerate();
+    }
+    
+    function addWhitelist(uint256 _roundNumber, address _value) external onlyOwner {
+        require(_isExistRound(_roundNumber), "does not exist round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(lengthOfWhitelist(_roundNumber) < maxOfWhitelist(_roundNumber), "exceed max of whitelist");
+        whitelistOfRound[_roundNumber].add(_value);
+    }
+
+    function addWhitelists(uint256 _roundNumber, address[] calldata _values) external onlyOwner {
+        require(_isExistRound(_roundNumber), "does not exist round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(lengthOfWhitelist(_roundNumber).add(_values.length) < maxOfWhitelist(_roundNumber), "exceed max of whitelist");
+        for (uint256 i = 0; i < _values.length; i++) {
+            whitelistOfRound[_roundNumber].add(_values[i]);
+        }
+    }
+
+    function removeWhitelist(uint256 _roundNumber, address _value) external onlyOwner {
+        require(_isExistRound(_roundNumber), "does not exist round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        whitelistOfRound[_roundNumber].remove(_value);
+    }
+
+
+    // ***************************** mint ***************************** //
+
+    modifier whenMintEnabled() {
+        require(mintEnabled, "does not enabled");
         _;
     }
 
-    // **** only operator **** //
-
-    function addRound (
-        string memory _name,
-        uint64 _startTimeStamp,
-        uint64 _endTimeStamp,
-        uint32 _roundNumber,
-        uint32 _supply,
-        uint32 _price,
-        uint32 _amountOfWhitelist,
-        uint32 _amountOfOperator,
-        uint32 _amountOfCreator,
-        uint32 _offerLimitOfAccount,
-        uint32 _mintLimitOfOffer 
-    ) public onlyOwner returns (Round) {
-        // 이미 존재하는 round Number인지 확인
-        require(rounds[_roundNumber] != 0, "already exist roundNumber");
-        // TimeStamp 확인
-        require(_startTimeStamp < _endTimeStamp, "invalid timeStamp");
-        // supply 확인
-        require(totalRoundSupply.add(_supply) <= totalSupply, "invalid supply");
-        // amount 확인
-        require(_amountOfWhitelist.add(_amountOfOperator).add(_amountOfCreator) <= _supply, "invalid amount");
-
-        uint32 amountOfAnyone = _supply.sub(_amountOfWhitelist.add(_amountOfOperator).add(_amountOfCreator));
-        rounds[_roundNumber] = Round(_name, _startTimeStamp, _endTimeStamp, _supply, 0, _price, _amountOfWhitelist, _amountOfOperator, _amountOfCreator, amountOfAnyone, _offerLimitOfAccount, _mintLimitOfOffer);
-        totalRoundSupply.add(_supply);
-
-        return rounds[_roundNumber];
-
-        // string name;
-        // uint64 startTimeStamp;
-        // uint64 endTimeStamp;
-        // uint32 supply;
-        // uint32 mintCount; // 라운드의 현재까지 발행량
-        // uint32 price;
-        // uint32 amountOfWhitelist;
-        // uint32 amountOfOperator;
-        // uint32 amountOfCreator;
-        // uint32 amountOfAnyone;
-        // uint32 offerLimitOfAccount; // 오퍼 횟수 한도
-        // uint32 mintLimitOfOffer; 
+    function _baseURI() internal view returns (string memory) {
+      return baseURI;
     }
 
-    function setBaseURI (string memory _baseURI) public onlyOwner {
-        baseURI = _baseURI;
-    }
-
-    function setBuyWhiteList (bool _buyWhiteList) public onlyOwner {
-        buyWhiteList = _buyWhiteList;
-    }
-
-    function withdraw (address payable _to) public onlyOwner {
-        _to.transfer(address(this).balance);
+    function tokenURI(uint256 tokenId) public view returns (string memory) { 
+        require(_exists(tokenId), "KIP17Metadata: URI query for nonexistent token");
+      
+        string memory currentBaseURI = _baseURI();
+        return bytes(currentBaseURI).length > 0 ? string(abi.encodePacked(currentBaseURI, uint2str(tokenId), ".json")) : "";
     }
     
-}
+    function mintOffer(uint256 _roundNumber) external payable whenMintEnabled {
+        require(address(msg.sender) != address(0) && address(msg.sender) != address(this), "invalid address");
+        require(_isExistRound(_roundNumber), "invalid round number");
 
+        Round memory round = rounds[_roundNumber];
+        Timestamp memory timestamp = timestampOfRound[_roundNumber];
+        MintCount storage mintCount = mintCountOfRound[_roundNumber];
 
-// contract Klaytn17Mint is KIP17Full, KIP17Mintable, KIP17MetadataMintable, KIP17Burnable, KIP17Pausable, Ownable {
-//     using SafeMath for uint256;
-//     using Counters for Counters.Counter;
-//     using EnumerableSet for EnumerableSet.AddressSet;
-//     Counters.Counter private tokenIds;
-//     string baseURI;
-
-
-//     EnumerableSet.AddressSet private whitelist;
-//     bool buyWhiteList = false;
-
-
-//     uint256 public supply;
-//     uint256 public price;
-//     uint256 public maxBuyCount;
-    
-
-//     event Klaytn17Burn(address _to, uint256 tokenId);
-
-
-//     constructor (
-//         string memory _name,
-//         string memory _symbol,
-//         string memory _baseURI,
-//         uint256 _supply,
-//         uint256 _price,
-//         uint256 _maxBuyCount
-//     )
-//         KIP17Mintable()
-//         KIP17MetadataMintable()
-//         KIP17Burnable()
-//         KIP17Pausable()
-//         KIP17Full(_name, _symbol) public {
-//         baseURI = _baseURI;
-//         supply = _supply;
-//         price = _price;
-//         maxBuyCount = _maxBuyCount;
-//     }
-    
-
-//     function mintBuy () public payable whenNotPaused {
-//         require(address(msg.sender) != address(0) && address(msg.sender) != address(this), 'wrong address');
-//         require(uint256(msg.value) != 0, 'wrong price');
-//         require(uint256(SafeMath.mod(uint256(msg.value), uint256(price))) == 0, 'wrong price');
-//         require(buyWhiteList == false || (buyWhiteList == true && containsWhitelist(msg.sender)), 'for buy must be contains address in whitelist');
+        require(timestamp.startTimestamp <= block.timestamp && block.timestamp <= timestamp.endTimestamp, "invalid timestamp");
+        require(uint256(msg.value) != 0 && uint256(SafeMath.mod(uint256(msg.value), uint256(round.price))) == 0, "invalid price");
         
-//         uint256 amount = uint256(SafeMath.div(uint256(msg.value), uint256(price)));
-//         require(amount <= maxBuyCount, 'exceed maxBuyCount');
+        uint256 amount = uint256(SafeMath.div(uint256(msg.value), uint256(round.price)));
+        
+        require(mintCount.totalMintCount.add(amount) <= round.supply, "exceed round supply");
+        require(accountMintCountOfRound[_roundNumber][msg.sender].add(amount) <= round.mintLimitOfAccount, "exceed mint limit of account");
+        
+        // ******** whitelist && whitelist time ******** //
+        if (isCountainWhitelist(_roundNumber, msg.sender) && block.timestamp <= timestamp.whitelistExpirationTimestamp) {
+            require(mintCount.whitelistMintCount.add(amount) <= round.amountOfWhitelist, "exceed amount of whitelist");
+            mintCount.whitelistMintCount = mintCount.whitelistMintCount.add(amount);
+        
+        // ******** anyone && whitelist time ******** //
+        } else if (block.timestamp <= timestamp.whitelistExpirationTimestamp) {
+            require(mintCount.anyoneMintCount.add(amount) <= round.amountOfAnyone, "exceed amount of anyone");
+            mintCount.anyoneMintCount = mintCount.anyoneMintCount.add(amount);
 
-//         mints(msg.sender, amount);
-//     }
+        // ******** anyone && end whitelist time ******** //
+        } else {
+            uint256 newAmountOfAnyone = round.amountOfAnyone.add(round.amountOfWhitelist.sub(mintCount.whitelistMintCount));
+            require(mintCount.anyoneMintCount.add(amount) <= newAmountOfAnyone, "exceed amount of anyone");
+            mintCount.anyoneMintCount = mintCount.anyoneMintCount.add(amount);
+        }
 
+        mintCount.totalMintCount = mintCount.totalMintCount.add(amount);
+        accountMintCountOfRound[_roundNumber][msg.sender] = accountMintCountOfRound[_roundNumber][msg.sender].add(amount);
 
-//     function mints (
-//         address _to,
-//         uint256 _amount
-//     ) private {
-//         for (uint i = 0; i < _amount; i++) {
-//             require(tokenIds.current() < supply, 'exceed supply');
+        _mints(msg.sender, amount);
+    }
 
-//             tokenIds.increment();
-//             uint256 newItemId = tokenIds.current();
+    function mintFounder(uint256 _roundNumber) external whenMintEnabled {
+        require(_isExistRound(_roundNumber), "invalid round number");
+        // founder도 round timestamp 확인해줄지?
+        require(address(msg.sender) == operator || address(msg.sender) == creator || address(msg.sender) == service, "invalid account");
+        
+        Round memory round = rounds[_roundNumber];
+        MintCount storage mintCount = mintCountOfRound[_roundNumber];
+        uint256 amount = 0;
 
-//             _mint(_to, newItemId);
-//             _setTokenURI(newItemId, string(abi.encodePacked(baseURI, uint2str(newItemId))));
-//         }
-//     }
+        if (address(msg.sender) == service) {
+            require(mintCount.serviceMintCount == 0, "already service mint");
+            amount = amount.add(round.amountOfService);
+            mintCount.serviceMintCount = mintCount.serviceMintCount.add(round.amountOfService);
+        }
 
+        if (address(msg.sender) == operator) {
+            require(mintCount.operatorMintCount == 0, "already operator mint");
+            amount = amount.add(round.amountOfOperator);
+            mintCount.operatorMintCount = mintCount.operatorMintCount.add(round.amountOfOperator);
+        }
 
+        if (address(msg.sender) == creator) {
+            require(mintCount.creatorMintCount == 0, "already creator mint");
+            amount = amount.add(round.amountOfCreator);
+            mintCount.creatorMintCount = mintCount.creatorMintCount.add(round.amountOfCreator);
+        }
 
+        mintCount.totalMintCount = mintCount.totalMintCount.add(amount);
 
-//     // ***** white list *****
-//     function containsWhitelist(address value) public view returns (bool) {
-//         return whitelist.contains(value);
-//     }
-//     function addWhitelist(address value) public onlyOwner {
-//         whitelist.add(value);
-//     }
-//     function addWhitelists(address[] memory values) public onlyOwner {
-//         for (uint256 i = 0 ; i < values.length; i++) {
-//             whitelist.add(values[i]);
-//         }
-//     }
-//     function removeWhitelist(address value) public onlyOwner {
-//         whitelist.remove(value);
-//     }
-//     function enumerateWhitelist() public view returns (address[] memory) {
-//         return whitelist.enumerate();
-//     }
-//     function lengthWhitelist() public view returns (uint256) {
-//         return whitelist.length();
-//     }
-//     function getWhitelist(uint256 index) public view returns (address) {
-//         return whitelist.get(index);
-//     }
+        _mints(msg.sender, amount);
+    }
 
+    function mintRemain(uint256 _roundNumber) external onlyOwner {
+        require(timestampOfRound[_roundNumber].endTimestamp < block.timestamp, "round is not over");
+        require(mintCountOfRound[_roundNumber].totalMintCount < rounds[_roundNumber].supply, "this round is all mint");
 
+        Round memory round = rounds[_roundNumber];
+        MintCount storage mintCount = mintCountOfRound[_roundNumber];
 
+        uint256 amount = round.supply.sub(mintCount.totalMintCount);
+        mintCount.totalMintCount = mintCount.totalMintCount.add(amount);
+        mintCount.remainMintCount = mintCount.remainMintCount.add(amount);
 
+        _mints(projectPublic, amount);
+    }
 
-//     // ***** public view *****
-//     function getCurrentCount () public view returns (uint256) {
-//         return tokenIds.current();
-//     }
+    function _mints(address _to, uint256 _amount) internal {
+        for (uint256 i = 0; i < _amount; i++) {
+            require(tokenIds.current() < totalCollectionSupply, "exceed supply");
 
-//     function getSupply () public view returns (uint256) {
-//         return supply;
-//     }
+            tokenIds.increment();
+            uint256 newItemId = tokenIds.current();
 
-//     function getPrice () public view returns (uint256) {
-//         return price;
-//     }
+            _mint(_to, newItemId);
+        }
+    }
 
+    // ***************************** withdraw ***************************** //
 
+    function withdraw() external onlyOwner {
+        distributor.transfer(address(this).balance);
+    }
 
-//     // onlyOwner
-
-//     function mintSingle (
-//         address _to
-//     ) public onlyOwner {
-//         require(tokenIds.current() < supply, 'exceed supply');
-
-
-//         tokenIds.increment();
-//         uint256 newItemId = tokenIds.current();
-
-//         _mint(_to, newItemId);
-//         _setTokenURI(newItemId, string(abi.encodePacked(baseURI, uint2str(newItemId))));
-//     }
-
-
-//     function mintBatch (address _to, uint _cnt) external onlyOwner {
-//         for (uint256 i = 0 ; i < _cnt; i++) {
-//             mintSingle(_to);
-//         }
-//     }
-
-
-//     function setSupply (uint256 _supply) public onlyOwner {
-//         supply = _supply;
-//     }
-
-
-//     function setPrice (uint256 _price) public onlyOwner {
-//         price = _price;
-//     }
+    function setDistributor(address payable _distributor) external onlyOwner {
+        distributor = _distributor;
+    }
 
 
-//     function setMaxAmount (uint256 _maxBuyCount) public onlyOwner {
-//         maxBuyCount = _maxBuyCount;
-//     }
+    // ***************************** only owner ***************************** //
+    
+    function setTotalCollectionSupply(uint256 _totalCollectionSupply) external onlyOwner {
+        totalCollectionSupply = _totalCollectionSupply;
+    }
+
+    function setBaseURI(string calldata _newBaseURI) external onlyOwner {
+        baseURI = _newBaseURI;
+    }
+
+    function setMintEnabled(bool _mintEnabled) external onlyOwner {
+        mintEnabled = _mintEnabled;
+    }
+
+    function setOperator(address payable _operator) external onlyOwner {
+        operator = _operator;
+    }
+
+    function setCreator(address payable _creator) external onlyOwner {
+        creator = _creator;
+    }
+
+    function setService(address payable _service) external onlyOwner {
+        service = _service;
+    }
+
+    function setProject(address payable _projectPublic) external onlyOwner {
+        projectPublic = _projectPublic;
+    }
 
 
-//     function setBaseURI (string memory _baseURI) public onlyOwner {
-//         baseURI = _baseURI;
-//     }
+    // ***************************** util ***************************** //
 
-//     function setBuyWhiteList (bool _buyWhiteList) public onlyOwner {
-//         buyWhiteList = _buyWhiteList;
-//     }
+    function uint2str (
+        uint _i
+    ) internal pure returns (string memory _uintAsString) {
+        if (_i == 0) {
+            return "0";
+        }
+        uint j = _i;
+        uint len;
+        while (j != 0) {
+            len++;
+            j /= 10;
+        }
+        bytes memory bstr = new bytes(len);
+        uint k = len - 1;
+        while (_i != 0) {
+            bstr[k--] = byte(uint8(48 + _i % 10));
+            _i /= 10;
+        }
+        return string(bstr);
+    }
 
-//     function withdraw (address payable _to) public onlyOwner {
-//         _to.transfer(address(this).balance);
-//     }
-
-
-
-//     // util
-//     function uint2str (
-//         uint _i
-//     ) internal pure returns (string memory _uintAsString) {
-//         if (_i == 0) {
-//             return "0";
-//         }
-//         uint j = _i;
-//         uint len;
-//         while (j != 0) {
-//             len++;
-//             j /= 10;
-//         }
-//         bytes memory bstr = new bytes(len);
-//         uint k = len - 1;
-//         while (_i != 0) {
-//             bstr[k--] = byte(uint8(48 + _i % 10));
-//             _i /= 10;
-//         }
-//         return string(bstr);
-//     }
-// }
+}
