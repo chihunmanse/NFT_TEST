@@ -12,19 +12,19 @@ import "./klaytn/utils/EnumerableSet.sol";
 import "./klaytn/token/KIP17/IKIP17Full.sol";
 
 contract INFT is IKIP17Full {
-
+    
     // ***************************** round ***************************** //
     
     function addOrSetRound( 
         uint256 _roundNumber,
         uint256 _supply,
         uint256 _price,
-        uint256 _amountOfOperator,
-        uint256 _amountOfCreator,
-        uint256 _amountOfService,
-        uint256 _amountOfProjectPublic,
-        uint256 _amountOfWhitelist,
-        uint256 _mintLimitOfAccount,
+        uint256 _supplyToService,
+        uint256 _supplyToOperator,
+        uint256 _supplyTOCreator,
+        uint256 _supplyToProjectPublic,
+        uint256 _supplyToWhitelist,
+        uint256 _accountSupplyLimit,
         uint256 _startTimestamp,
         uint256 _whitelistExpirationTimestamp,
         uint256 _endTimestamp
@@ -68,7 +68,7 @@ contract INFT is IKIP17Full {
 
     // ***************************** only owner ***************************** //
     
-    function setTotalCollectionSupply(uint256 _totalCollectionSupply) external;
+    function setSupplyLimit(uint256 _supplyLimit) external;
 
     function setBaseURI(string calldata _baseURI) external;
 
@@ -92,7 +92,7 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
 
     bool public mintEnabled = false;
     string public baseURI; 
-    uint256 public totalCollectionSupply;
+    uint256 public supplyLimit;
     uint256 public totalRoundSupply; // 현재까지 설정된 round 총 발행량 
 
     // 추후 서비스 컨트랙에서 불러오는 것으로 수정
@@ -105,13 +105,13 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
     struct Round {
         uint256 supply;
         uint256 price;
-        uint256 amountOfService;
-        uint256 amountOfOperator;
-        uint256 amountOfCreator;
-        uint256 amountOfProjectPublic;
-        uint256 amountOfWhitelist;
+        uint256 supplyToService;
+        uint256 supplyToOperator;
+        uint256 supplyTOCreator;
+        uint256 supplyToProjectPublic;
+        uint256 supplyToWhitelist;
         uint256 amountOfAnyone;
-        uint256 mintLimitOfAccount;
+        uint256 accountSupplyLimit;
     }
 
     struct Timestamp {
@@ -120,28 +120,28 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
         uint256 endTimestamp;
     }
 
-    struct MintCount {
-        uint256 totalMintCount;
-        uint256 operatorMintCount;
-        uint256 creatorMintCount;
-        uint256 serviceMintCount;
-        uint256 projectPublicMintCount;
-        uint256 whitelistMintCount;
-        uint256 anyoneMintCount;
-        uint256 remainMintCount;
+    struct MintingCount {
+        uint256 totalMinting;
+        uint256 byService;
+        uint256 byOperator;
+        uint256 byCreator;
+        uint256 byProejctPublic;
+        uint256 byWhitelist;
+        uint256 byAnyone;
+        uint256 remaining;
     }
 
     mapping(uint256 => Round) public rounds; // roundNumber => Round 매핑
     mapping(uint256 => Timestamp) public timestampOfRound; // roundNumber => Timestamp 매핑
-    mapping(uint256 => MintCount) public mintCountOfRound; // roundNumber => mintCount 매핑
+    mapping(uint256 => MintingCount) public mintingCountOfRound; // roundNumber => mintingCount 매핑
     mapping(uint256 => EnumerableSet.AddressSet) private whitelistOfRound; // roundNumber => whitelist set 매핑
-    mapping(uint256 => mapping(address => uint256)) private accountMintCountOfRound; // roundNumber => (account : mintCount) 매핑
+    mapping(uint256 => mapping(address => uint256)) private accountMintingCountOfRound; // roundNumber => (account : mintingCount) 매핑
 
     constructor (
         string memory _name,
         string memory _symbol,
         string memory _baseURI,
-        uint256 _totalCollectionSupply,
+        uint256 _supplyLimit,
         address payable _service,
         address payable _operator,
         address payable _creator,
@@ -154,7 +154,7 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
         KIP17Pausable()
         KIP17Full(_name, _symbol) public {
         baseURI = _baseURI;
-        totalCollectionSupply = _totalCollectionSupply;
+        supplyLimit = _supplyLimit;
         service = _service;
         operator = _operator;
         creator = _creator;
@@ -169,54 +169,53 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
         uint256 _roundNumber,
         uint256 _supply,
         uint256 _price,
-        uint256 _amountOfService,
-        uint256 _amountOfOperator,
-        uint256 _amountOfCreator,
-        uint256 _amountOfProjectPublic,
-        uint256 _amountOfWhitelist,
-        uint256 _mintLimitOfAccount,
+        uint256 _supplyToService,
+        uint256 _supplyToOperator,
+        uint256 _supplyTOCreator,
+        uint256 _supplyToProjectPublic,
+        uint256 _supplyToWhitelist,
+        uint256 _accountSupplyLimit,
         uint256 _startTimestamp,
         uint256 _whitelistExpirationTimestamp,
         uint256 _endTimestamp
     ) external onlyOwner {
-        require(_startTimestamp < _endTimestamp, "invalid timestamp"); 
-        require(_whitelistExpirationTimestamp <= _endTimestamp, "invalid timestamp");
+        require(_checkTimeStamp(_roundNumber, _startTimestamp, _whitelistExpirationTimestamp, _endTimestamp), "invalid timestamp");
         require(_calculateAmount(
-            _amountOfService,
-            _amountOfOperator,
-            _amountOfCreator,
-            _amountOfProjectPublic,
-            _amountOfWhitelist) <= _supply, "invalid amount");
+            _supplyToService,
+            _supplyToOperator,
+            _supplyTOCreator,
+            _supplyToProjectPublic,
+            _supplyToWhitelist) <= _supply, "invalid amount");
 
         if (_isExistRound(_roundNumber)) {
             Round memory round = rounds[_roundNumber];
             Timestamp memory timestamp = timestampOfRound[_roundNumber];
             
-            require(block.timestamp < timestamp.startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
-            require(totalRoundSupply.sub(round.supply).add(_supply) <= totalCollectionSupply, "invalid supply");
+            require(block.timestamp < timestamp.startTimestamp && mintingCountOfRound[_roundNumber].totalMinting == 0, "already start round");
+            require(totalRoundSupply.sub(round.supply).add(_supply) <= supplyLimit, "invalid supply");
             
             totalRoundSupply = totalRoundSupply.sub(round.supply);
         } else {
-            require(totalRoundSupply.add(_supply) <= totalCollectionSupply, "invalid supply");
+            require(totalRoundSupply.add(_supply) <= supplyLimit, "invalid supply");
         }
 
         uint256 amountOfAnyone = _supply.sub(_calculateAmount(
-            _amountOfService,
-            _amountOfOperator,
-            _amountOfCreator,
-            _amountOfProjectPublic,
-            _amountOfWhitelist));
+            _supplyToService,
+            _supplyToOperator,
+            _supplyTOCreator,
+            _supplyToProjectPublic,
+            _supplyToWhitelist));
         
         rounds[_roundNumber] = Round(
             _supply,
             _price,
-            _amountOfService,
-            _amountOfOperator, 
-            _amountOfCreator,
-            _amountOfProjectPublic,
-            _amountOfWhitelist,
+            _supplyToService,
+            _supplyToOperator, 
+            _supplyTOCreator,
+            _supplyToProjectPublic,
+            _supplyToWhitelist,
             amountOfAnyone, 
-            _mintLimitOfAccount);
+            _accountSupplyLimit);
         
         timestampOfRound[_roundNumber] = Timestamp(
             _startTimestamp,
@@ -224,7 +223,7 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
             _endTimestamp
         );
 
-        mintCountOfRound[_roundNumber] = MintCount(
+        mintingCountOfRound[_roundNumber] = MintingCount(
             0,
             0,
             0,
@@ -240,14 +239,14 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
 
     function removeRound(uint256 _roundNumber) external onlyOwner {
         require(_isExistRound(_roundNumber), "does not exist round");
-        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintingCountOfRound[_roundNumber].totalMinting == 0, "already start round");
 
         delete rounds[_roundNumber];
         delete timestampOfRound[_roundNumber];
-        delete mintCountOfRound[_roundNumber];
+        delete mintingCountOfRound[_roundNumber];
     }
 
-    function _isExistRound(uint256 _roundNumber) internal view returns (bool) {
+    function _isExistRound(uint256 _roundNumber) private view returns (bool) {
         return rounds[_roundNumber].price != 0 && 
                rounds[_roundNumber].supply != 0 && 
                timestampOfRound[_roundNumber].startTimestamp != 0 && 
@@ -255,20 +254,42 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
     }
 
     function _calculateAmount(
-        uint256 _amountOfService,
-        uint256 _amountOfOperator,
-        uint256 _amountOfCreator,
-        uint256 _amountOfProjectPublic,
-        uint256 _amountOfWhitelist
-    ) internal pure returns(uint256) {
-        return _amountOfService.add(_amountOfOperator).add(_amountOfCreator).add(_amountOfProjectPublic).add(_amountOfWhitelist);
+        uint256 _supplyToService,
+        uint256 _supplyToOperator,
+        uint256 _supplyTOCreator,
+        uint256 _supplyToProjectPublic,
+        uint256 _supplyToWhitelist
+    ) private pure returns(uint256) {
+        return _supplyToService.add(_supplyToOperator).add(_supplyTOCreator).add(_supplyToProjectPublic).add(_supplyToWhitelist);
+    }
+
+    function _checkTimeStamp(
+        uint256 _roundNumber, 
+        uint256 _startTimestamp,
+        uint256 _whitelistExpirationTimestamp,
+        uint256 _endTimestamp
+    ) private view returns (bool) {
+        if (_startTimestamp < _endTimestamp ||
+            _whitelistExpirationTimestamp <= _endTimestamp ||
+            timestampOfRound[_roundNumber].endTimestamp < _startTimestamp
+        ) {
+            return false;
+        }
+
+        if (_isExistRound(_roundNumber.add(1))) {
+            if (_endTimestamp < timestampOfRound[_roundNumber.add(1)].startTimestamp) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 
     // ***************************** whitelist ***************************** //
 
     function maxOfWhitelist(uint256 _roundNumber) public view returns (uint256) {
-        return rounds[_roundNumber].amountOfWhitelist.mul(rounds[_roundNumber].mintLimitOfAccount);
+        return rounds[_roundNumber].supplyToWhitelist.mul(rounds[_roundNumber].accountSupplyLimit);
     }
 
     function lengthOfWhitelist(uint256 _roundNumber) public view returns (uint256) {
@@ -285,14 +306,14 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
     
     function addWhitelist(uint256 _roundNumber, address _value) external onlyOwner {
         require(_isExistRound(_roundNumber), "does not exist round");
-        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintingCountOfRound[_roundNumber].totalMinting == 0, "already start round");
         require(lengthOfWhitelist(_roundNumber) < maxOfWhitelist(_roundNumber), "exceed max of whitelist");
         whitelistOfRound[_roundNumber].add(_value);
     }
 
     function addWhitelists(uint256 _roundNumber, address[] calldata _values) external onlyOwner {
         require(_isExistRound(_roundNumber), "does not exist round");
-        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintingCountOfRound[_roundNumber].totalMinting == 0, "already start round");
         require(lengthOfWhitelist(_roundNumber).add(_values.length) < maxOfWhitelist(_roundNumber), "exceed max of whitelist");
         for (uint256 i = 0; i < _values.length; i++) {
             whitelistOfRound[_roundNumber].add(_values[i]);
@@ -301,7 +322,7 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
 
     function removeWhitelist(uint256 _roundNumber, address _value) external onlyOwner {
         require(_isExistRound(_roundNumber), "does not exist round");
-        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintCountOfRound[_roundNumber].totalMintCount == 0, "already start round");
+        require(block.timestamp < timestampOfRound[_roundNumber].startTimestamp && mintingCountOfRound[_roundNumber].totalMinting == 0, "already start round");
         whitelistOfRound[_roundNumber].remove(_value);
     }
 
@@ -309,12 +330,8 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
     // ***************************** mint ***************************** //
 
     modifier whenMintEnabled() {
-        require(mintEnabled, "does not enabled");
+        _whenMintEnabled();
         _;
-    }
-
-    function _baseURI() internal view returns (string memory) {
-      return baseURI;
     }
 
     function tokenURI(uint256 tokenId) public view returns (string memory) { 
@@ -330,35 +347,35 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
 
         Round memory round = rounds[_roundNumber];
         Timestamp memory timestamp = timestampOfRound[_roundNumber];
-        MintCount storage mintCount = mintCountOfRound[_roundNumber];
+        MintingCount storage mintingCount = mintingCountOfRound[_roundNumber];
 
         require(timestamp.startTimestamp <= block.timestamp && block.timestamp <= timestamp.endTimestamp, "invalid timestamp");
         require(uint256(msg.value) != 0 && uint256(SafeMath.mod(uint256(msg.value), uint256(round.price))) == 0, "invalid price");
         
         uint256 amount = uint256(SafeMath.div(uint256(msg.value), uint256(round.price)));
         
-        require(mintCount.totalMintCount.add(amount) <= round.supply, "exceed round supply");
-        require(accountMintCountOfRound[_roundNumber][msg.sender].add(amount) <= round.mintLimitOfAccount, "exceed mint limit of account");
+        require(mintingCount.totalMinting.add(amount) <= round.supply, "exceed round supply");
+        require(accountMintingCountOfRound[_roundNumber][msg.sender].add(amount) <= round.accountSupplyLimit, "exceed mint limit of account");
         
         // ******** whitelist && whitelist time ******** //
         if (isCountainWhitelist(_roundNumber, msg.sender) && block.timestamp <= timestamp.whitelistExpirationTimestamp) {
-            require(mintCount.whitelistMintCount.add(amount) <= round.amountOfWhitelist, "exceed amount of whitelist");
-            mintCount.whitelistMintCount = mintCount.whitelistMintCount.add(amount);
+            require(mintingCount.byWhitelist.add(amount) <= round.supplyToWhitelist, "exceed amount of whitelist");
+            mintingCount.byWhitelist = mintingCount.byWhitelist.add(amount);
         
         // ******** anyone && whitelist time ******** //
         } else if (block.timestamp <= timestamp.whitelistExpirationTimestamp) {
-            require(mintCount.anyoneMintCount.add(amount) <= round.amountOfAnyone, "exceed amount of anyone");
-            mintCount.anyoneMintCount = mintCount.anyoneMintCount.add(amount);
+            require(mintingCount.byAnyone.add(amount) <= round.amountOfAnyone, "exceed amount of anyone");
+            mintingCount.byAnyone = mintingCount.byAnyone.add(amount);
 
         // ******** anyone && end whitelist time ******** //
         } else {
-            uint256 newAmountOfAnyone = round.amountOfAnyone.add(round.amountOfWhitelist.sub(mintCount.whitelistMintCount));
-            require(mintCount.anyoneMintCount.add(amount) <= newAmountOfAnyone, "exceed amount of anyone");
-            mintCount.anyoneMintCount = mintCount.anyoneMintCount.add(amount);
+            uint256 newAmountOfAnyone = round.amountOfAnyone.add(round.supplyToWhitelist.sub(mintingCount.byWhitelist));
+            require(mintingCount.byAnyone.add(amount) <= newAmountOfAnyone, "exceed amount of anyone");
+            mintingCount.byAnyone = mintingCount.byAnyone.add(amount);
         }
 
-        mintCount.totalMintCount = mintCount.totalMintCount.add(amount);
-        accountMintCountOfRound[_roundNumber][msg.sender] = accountMintCountOfRound[_roundNumber][msg.sender].add(amount);
+        mintingCount.totalMinting = mintingCount.totalMinting.add(amount);
+        accountMintingCountOfRound[_roundNumber][msg.sender] = accountMintingCountOfRound[_roundNumber][msg.sender].add(amount);
 
         _mints(msg.sender, amount);
     }
@@ -369,77 +386,77 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
         
         Round memory round = rounds[_roundNumber];
         Timestamp memory timestamp = timestampOfRound[_roundNumber];
-        MintCount storage mintCount = mintCountOfRound[_roundNumber];
+        MintingCount storage mintingCount = mintingCountOfRound[_roundNumber];
 
         require(timestamp.startTimestamp <= block.timestamp && block.timestamp <= timestamp.endTimestamp, "invalid timestamp");
         
         uint256 maxAmount = 1000;
-        uint256 amount = 0;
+        uint256 amount;
 
         // 서비스 컨트랙
         if (address(msg.sender) == service) {
-            require(mintCount.serviceMintCount < round.amountOfService, "service is all mint");
-            amount = round.amountOfService.sub(mintCount.serviceMintCount);
+            require(mintingCount.byService < round.supplyToService, "service is all mint");
+            amount = round.supplyToService.sub(mintingCount.byService);
 
             if (maxAmount < amount) {
             amount = amount.sub(amount.sub(maxAmount));
             }
 
-            mintCount.serviceMintCount = mintCount.serviceMintCount.add(amount);
+            mintingCount.byService = mintingCount.byService.add(amount);
 
         } else if (address(msg.sender) == operator) { 
-            require(mintCount.operatorMintCount < round.amountOfOperator, "operator is all mint");
-            amount = round.amountOfOperator.sub(mintCount.operatorMintCount);
+            require(mintingCount.byOperator < round.supplyToOperator, "operator is all mint");
+            amount = round.supplyToOperator.sub(mintingCount.byOperator);
 
             if (maxAmount < amount) {
             amount = amount.sub(amount.sub(maxAmount));
             }
 
-            mintCount.operatorMintCount = mintCount.operatorMintCount.add(amount);
+            mintingCount.byOperator = mintingCount.byOperator.add(amount);
 
         } else if (address(msg.sender) == creator) {
-            require(mintCount.creatorMintCount < round.amountOfCreator, "operator is all mint");
-            amount = round.amountOfCreator.sub(mintCount.creatorMintCount);
+            require(mintingCount.byCreator < round.supplyTOCreator, "operator is all mint");
+            amount = round.supplyTOCreator.sub(mintingCount.byCreator);
 
             if (maxAmount < amount) {
             amount = amount.sub(amount.sub(maxAmount));
             }
 
-            mintCount.creatorMintCount = mintCount.creatorMintCount.add(amount);
+            mintingCount.byCreator = mintingCount.byCreator.add(amount);
 
         } else if (address(msg.sender) == projectPublic) {
-            require(mintCount.projectPublicMintCount < round.amountOfProjectPublic, "operator is all mint");
-            amount = round.amountOfProjectPublic.sub(mintCount.projectPublicMintCount);
+            require(mintingCount.byProejctPublic < round.supplyToProjectPublic, "operator is all mint");
+            amount = round.supplyToProjectPublic.sub(mintingCount.byProejctPublic);
 
             if (maxAmount < amount) {
             amount = amount.sub(amount.sub(maxAmount));
             }
 
-            mintCount.projectPublicMintCount = mintCount.projectPublicMintCount.add(amount);
+            mintingCount.byProejctPublic = mintingCount.byProejctPublic.add(amount);
         }
 
-        mintCount.totalMintCount = mintCount.totalMintCount.add(amount);
+        mintingCount.totalMinting = mintingCount.totalMinting.add(amount);
 
         _mints(msg.sender, amount);
     }
 
     function mintRemain(uint256 _roundNumber) external onlyOwner {
         require(timestampOfRound[_roundNumber].endTimestamp < block.timestamp, "round is not over");
-        require(mintCountOfRound[_roundNumber].totalMintCount < rounds[_roundNumber].supply, "this round is all mint");
+        require(mintingCountOfRound[_roundNumber].totalMinting < rounds[_roundNumber].supply, "this round is all mint");
 
         Round memory round = rounds[_roundNumber];
-        MintCount storage mintCount = mintCountOfRound[_roundNumber];
+        MintingCount storage mintingCount = mintingCountOfRound[_roundNumber];
 
-        uint256 amount = round.supply.sub(mintCount.totalMintCount);
-        mintCount.totalMintCount = mintCount.totalMintCount.add(amount);
-        mintCount.remainMintCount = mintCount.remainMintCount.add(amount);
+        uint256 amount = round.supply.sub(mintingCount.totalMinting);
+        mintingCount.totalMinting = mintingCount.totalMinting.add(amount);
+        mintingCount.remaining = mintingCount.remaining.add(amount);
 
         _mints(projectPublic, amount);
     }
 
-    function _mints(address _to, uint256 _amount) internal {
+    function _mints(address _to, uint256 _amount) private {
         for (uint256 i = 0; i < _amount; i++) {
-            require(tokenIds.current() < totalCollectionSupply, "exceed supply");
+            require(tokenIds.current() < supplyLimit, "exceed supply");
 
             tokenIds.increment();
             uint256 newItemId = tokenIds.current();
@@ -447,6 +464,15 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
             _mint(_to, newItemId);
         }
     }
+
+    function _baseURI() private view returns (string memory) {
+      return baseURI;
+    }
+
+    function _whenMintEnabled() private view {
+         require(mintEnabled, "does not enabled");
+    }
+
 
     // ***************************** withdraw ***************************** //
 
@@ -462,8 +488,8 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
 
     // ***************************** only owner ***************************** //
     
-    function setTotalCollectionSupply(uint256 _totalCollectionSupply) external onlyOwner {
-        totalCollectionSupply = _totalCollectionSupply;
+    function setSupplyLimit(uint256 _supplyLimit) external onlyOwner {
+        supplyLimit = _supplyLimit;
     }
 
     function setBaseURI(string calldata _newBaseURI) external onlyOwner {
@@ -495,7 +521,7 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
 
     function uint2str (
         uint _i
-    ) internal pure returns (string memory _uintAsString) {
+    ) private pure returns (string memory _uintAsString) {
         if (_i == 0) {
             return "0";
         }
@@ -513,4 +539,5 @@ contract NFT is INFT, KIP17Full, KIP17Mintable, KIP17Burnable, KIP17Pausable, KI
         }
         return string(bstr);
     }
+
 }

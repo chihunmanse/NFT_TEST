@@ -33,8 +33,12 @@ contract Ownable {
      * @dev Throws if called by any account other than the owner.
      */
     modifier onlyOwner() {
-        require(isOwner(), "Ownable: caller is not the owner");
+        _onlyOwner();
         _;
+    }
+
+    function _onlyOwner() private view {
+        require (msg.sender == _owner, "Ownable: caller is not the owner");
     }
 
     /**
